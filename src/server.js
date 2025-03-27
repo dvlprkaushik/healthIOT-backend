@@ -17,12 +17,13 @@ const io = new Server(server, {
 });
 
 app.use(express.json()); // Parse incoming JSON data
-app.use(cors({
-  origin : "*",
-}))
+app.use(
+  cors({
+    origin: "*",
+  })
+);
 // my auth route
 app.use("/api/auth", authRoutes);
-
 
 // **Initial Sensor Data**
 let sensorData = {
@@ -35,30 +36,45 @@ let sensorData = {
 // **ESP32 Wireless HTTP Endpoint**
 app.post("/esp-data", (req, res) => {
   try {
-    const { heartRate, spo2, temperatureC, fingerDetected } = req.body;
+    const { heartRate, spo2, temperatureC, status, fingerDetected } = req.body;
 
+    // Update finger detection status
     if (fingerDetected !== undefined) {
       sensorData.fingerDetected = fingerDetected;
-      io.emit("fingerNotDetected", fingerDetected === -10000);
+      // Emit event when finger is not detected
+      io.emit("fingerNotDetected", !fingerDetected);
     }
 
+    // Handle heart rate
     if (heartRate !== undefined) {
-      sensorData.heartRate = heartRate;
-      io.emit("heartRate", heartRate);
+      // Check if heart rate is a valid number (not -10000)
+      sensorData.heartRate = heartRate === -10000 ? null : heartRate;
+      io.emit("heartRate", sensorData.heartRate);
     }
 
+    // Handle SpO2
     if (spo2 !== undefined) {
-      sensorData.spo2 = spo2;
-      io.emit("spo2", spo2);
+      // Check if SpO2 is a valid number (not -10000)
+      sensorData.spo2 = spo2 === -10000 ? null : spo2;
+      io.emit("spo2", sensorData.spo2);
     }
 
+    // Handle temperature
     if (temperatureC !== undefined) {
       sensorData.temperatureC = temperatureC;
       io.emit("temperature", temperatureC);
     }
 
+    // Handle status
+    if (status !== undefined) {
+      sensorData.status = status;
+      io.emit("status", status);
+    }
+
     console.log("Received Wi-Fi Data:", req.body);
-    res.status(200).send({ status: "Data received" });
+    console.log("Processed Sensor Data:", sensorData);
+
+    res.status(200).send({ status: "Data received" , sensorData});
   } catch (err) {
     res.status(500).send({ error: err.message });
   }
@@ -72,7 +88,14 @@ io.on("connection", (socket) => {
   socket.emit("heartRate", sensorData.heartRate);
   socket.emit("spo2", sensorData.spo2);
   socket.emit("temperature", sensorData.temperatureC);
-  socket.emit("fingerNotDetected", sensorData.fingerDetected === -10000);
+  socket.emit("status", sensorData.status);
+
+  // Emit finger not detected status
+  // Note: We're checking for null or false, depending on how you want to handle it
+  socket.emit(
+    "fingerNotDetected",
+    sensorData.fingerDetected === false || sensorData.fingerDetected === null
+  );
 
   socket.on("disconnect", () => {
     console.log("Frontend disconnected");
